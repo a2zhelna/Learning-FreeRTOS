@@ -1,43 +1,63 @@
+//Challenge (https://www.digikey.ca/en/maker/projects/introduction-to-rtos-solution-to-part-4-memory-management/6d4dfcaa1ff84f57a2098da8e6401d9c):
+// Using FreeRTOS, create two separate tasks. One listens for input over UART (from the Serial Monitor). 
+// Upon receiving a newline character (‘\n’), the task allocates a new section of heap memory (using pvPortMalloc()) 
+// and stores the string up to the newline character in that section of heap. 
+// It then notifies the second task that a message is ready.
+
+// The second task waits for notification from the first task. When it receives that notification, 
+// it prints the message in heap memory to the Serial Monitor.
+// Finally, it deletes the allocated heap memory (using vPortFree()).
+
+
 #include <Arduino.h>
 
 static TaskHandle_t task1_handle;
 static TaskHandle_t task2_handle;
 
+//Realized it's ok to have a limit on how many chars you can receive
+//(This minimizes compute)
+static const uint8_t max_len = 255;
+
+//Essential variables used every time the program executes its purpose
+//Declaring them static because instead of constantly allocating and deallocating
+//stack variables, this gives them one address, which can be accessed quicker
+static uint16_t char_count = 0;
 static char* heap_address;
+static volatile uint8_t notif = 0;
+static char current_char;
 
 void task1( void * pvParameters ) {
   while(1) {
-    if (Serial.available()) {
-      String strong = Serial.readStringUntil('\n');
-      strong.trim();
-
-      int len = strong.length();
-
-      char *ptr = (char*)pvPortMalloc(sizeof(char) * (len + 1));
-      ptr[len] = '\0';
-
-      heap_address = ptr;
-
-      for (int i = 0; i < len; i++)
-      {
-        ptr[i] = strong[i];
+    while (notif == 0) {
+      if (Serial.available()) {
+        current_char = Serial.read();
+        //When receiving the first character, allocate some memory
+        if (char_count == 0) {
+          heap_address = (char*)pvPortMalloc(sizeof(char) * max_len); //FreeRTOS-friendly dynamic memory allocation function
+        }
+        if (heap_address != NULL) {     //Safety check making sure there was enough heap memory
+          if (current_char != '\n' && char_count + 1 < max_len) {
+            heap_address[char_count] = current_char;
+            char_count++;
+          }
+          else {      //Once we reach the final character in the serial buffer, notfiy the other task!
+            heap_address[char_count] = '\0';
+            notif = 1;
+            char_count = 0;
+          }
+        }
       }
-      //vTaskDelay(100 / portTICK_PERIOD_MS);
-      vTaskResume(task2_handle);
     }
   }
 }
 
 void task2( void * pvParameters ) {
   while(1) {
-    if (heap_address != NULL) {
-      for (int i = 0; heap_address[i] != '\0'; i++)
-      {
-        Serial.print(heap_address[i]); 
-      }
-      vPortFree(heap_address);
+    if (notif == 1) {
+      Serial.println(heap_address);
+      vPortFree(heap_address); //FreeRTOS-friendly memory deallocation function
+      notif = 0;
     }
-    vTaskSuspend(NULL);
   }
 }
 
@@ -59,11 +79,7 @@ void setup() {
     "Task 2",
     1024,
     NULL,
-    2,            //It seems that allocating memory (specifically, assigning an address to some variable), in a task sometimes 
-                  //makes it so a task with an equal core & priority doesn't see the updated address. 
-                  //(Adding a delay before going to the task which reads the address lets the task successfully read it) 
-                  //(Setting the priority of the "address reading" task higher than that of the "assigner" task makes everything work fine)
-                  //Shawn Hymel, Intro to RTOS Part 5, 8:15, "Its generally a good idea to assign one hardware periferal per task" - meaning you should have one task for all Serial.print functions
+    1,
     &task2_handle,
     1
   );
@@ -71,6 +87,5 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
-  vTaskSuspend(task2_handle);
   vTaskDelete(NULL);
 }
