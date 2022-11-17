@@ -24,10 +24,13 @@ void myTimerCallback( TimerHandle_t xTimer ) {
 void task1( void * pvParameters ) {
   while(1) {
     if (Serial.available()) {
-      Serial.read();
+      Serial.read();          //Read character from serial buffer
       Serial.print("ON");
       xTimerStart(timer1_handle, portMAX_DELAY);  //This function acts as the xTimerReset() function when called before timer expires 
                                                   //hence the "LED" stays on while characters are being entered.
+                                                  //portMAX_DELAY means that the task will wait indefinitely until it can give to
+                                                  //the timer queue.
+                                                  //However, we don't need to worry about this because there are no other timers.
     }
   }
 }
