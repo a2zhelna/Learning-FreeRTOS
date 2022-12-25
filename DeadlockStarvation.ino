@@ -54,9 +54,12 @@ void eat(void *parameters) {
   Serial.println(buf);
 
   // Add some delay to force deadlock
+  // This is due to all the other philosopher's picking up their left chopsticks,
+  // leaving no right chopsticks to pick up
   vTaskDelay(1 / portTICK_PERIOD_MS);
 
   // Take right chopstick
+  // This is the cause of the deadlock. The philosophers wait forever to pick this up.
   xSemaphoreTake(chopstick[right_num], portMAX_DELAY);
   sprintf(buf, "Philosopher %i took chopstick %i", num, right_num);
   Serial.println(buf);
@@ -98,7 +101,7 @@ void setup() {
 
   // Create kernel objects before starting tasks
   bin_sem = xSemaphoreCreateBinary();
-  
+
   done_sem = xSemaphoreCreateCounting(NUM_TASKS, 0);
   for (int i = 0; i < NUM_TASKS; i++) {
     chopstick[i] = xSemaphoreCreateMutex();
