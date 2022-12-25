@@ -108,6 +108,7 @@ void setup() {
 
   // Have the philosphers start eating
   for (int i = 0; i < NUM_TASKS; i++) {
+    sprintf(task_name, "Philosopher %i", i);
     xTaskCreatePinnedToCore(eat,
                             task_name,
                             TASK_STACK_SIZE,
