@@ -1,17 +1,8 @@
-/**
- * ESP32 Dining Philosophers
- * 
- * The classic "Dining Philosophers" problem in FreeRTOS form.
- * 
- * Based on http://www.cs.virginia.edu/luther/COA2/S2019/pa05-dp.html
- * 
- * Date: February 8, 2021
- * Author: Shawn Hymel
- * License: 0BSD
- */
+//* Challenge (https://www.digikey.ca/en/maker/projects/introduction-to-rtos-solution-to-part-10-deadlock-and-starvation/872c6a057901432e84594d79fcb2cc5d)
+// * Your challenge is to solve the dining philosophers problem using the demo code found here ^
 
-// You'll likely need this on vanilla FreeRTOS
-//#include semphr.h
+//When you run this program on your ESP32, you should see it immediately enter into a deadlock state. Implement both the “hierarchy” solution and the “arbitrator” solution to solve it.
+//Note that the "eat" task function does not loop forever. If deadlock can be avoided, all tasks will delete themselves, and you should see a "Done! No deadlock occurred!" message appear in the serial terminal.
 
 // Use only core 1 for demo purposes
 #if CONFIG_FREERTOS_UNICORE
@@ -48,20 +39,34 @@ void eat(void *parameters) {
   }
   xSemaphoreGive(bin_sem);
 
-  // Take left chopstick
-  xSemaphoreTake(chopstick[num], portMAX_DELAY);
-  sprintf(buf, "Philosopher %i took chopstick %i", num, num);
+  //Figure out which adjacent chopstick is lower/higher numbered
+  char low_num;
+  char high_num;
+
+  if (num > right_num) {
+    low_num = right_num;
+    high_num = num;
+  } else {
+    low_num = num;
+    high_num = right_num;
+  }
+
+
+  //Hierarchical solution:
+  //A philosopher can pick up an adjacent lower-numbered chopstick, and 
+  //then only after that he can pick up the higher-numbered one, and eat.
+
+  // Take lower-numbered chopstick
+  xSemaphoreTake(chopstick[low_num], portMAX_DELAY);
+  sprintf(buf, "Philosopher %i took chopstick %i", num, low_num);
   Serial.println(buf);
 
   // Add some delay to force deadlock
-  // This is due to all the other philosopher's picking up their left chopsticks,
-  // leaving no right chopsticks to pick up
   vTaskDelay(1 / portTICK_PERIOD_MS);
 
-  // Take right chopstick
-  // The deadlock occurs here. The philosophers wait forever to pick this up.
-  xSemaphoreTake(chopstick[right_num], portMAX_DELAY);
-  sprintf(buf, "Philosopher %i took chopstick %i", num, right_num);
+  // Take higher-numbered chopstick (only after lower-numbered one has been picked up)
+  xSemaphoreTake(chopstick[high_num], portMAX_DELAY);
+  sprintf(buf, "Philosopher %i took chopstick %i", num, high_num);
   Serial.println(buf);
 
   // Do some eating
@@ -69,15 +74,20 @@ void eat(void *parameters) {
   Serial.println(buf);
   vTaskDelay(10 / portTICK_PERIOD_MS);
 
-  // Put down right chopstick
-  xSemaphoreGive(chopstick[right_num]);
-  sprintf(buf, "Philosopher %i returned chopstick %i", num, right_num);
+  // Put down high-numbered chopstick
+  xSemaphoreGive(chopstick[high_num]);
+  sprintf(buf, "Philosopher %i returned chopstick %i", num, high_num);
   Serial.println(buf);
 
-  // Put down left chopstick
-  xSemaphoreGive(chopstick[num]);
-  sprintf(buf, "Philosopher %i returned chopstick %i", num, num);
+  // Put down low-numbered chopstick
+  xSemaphoreGive(chopstick[low_num]);
+  sprintf(buf, "Philosopher %i returned chopstick %i", num, low_num);
   Serial.println(buf);
+
+  //Not quite sure why the mutexes/chopsticks are recommended to be given back in this, reverse order of acquisition.
+  //(In Shawn Hymel's "Introduction to RTOS Part 10" at 9:05)
+  //I believe that since every task follows the same order of acquisition, there are no inconsistencies
+  //and no ways for a task to be locked while relesing the mutexes it took.
 
   // Notify main task and delete self
   xSemaphoreGive(done_sem);
