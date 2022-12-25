@@ -48,7 +48,7 @@ void eat(void *parameters) {
   }
   xSemaphoreGive(bin_sem);
 
-  // Take left (lower-numbered) chopstick
+  // Take left chopstick
   xSemaphoreTake(chopstick[num], portMAX_DELAY);
   sprintf(buf, "Philosopher %i took chopstick %i", num, num);
   Serial.println(buf);
@@ -59,7 +59,7 @@ void eat(void *parameters) {
   vTaskDelay(1 / portTICK_PERIOD_MS);
 
   // Take right chopstick
-  // This is the cause of the deadlock. The philosophers wait forever to pick this up.
+  // The deadlock occurs here. The philosophers wait forever to pick this up.
   xSemaphoreTake(chopstick[right_num], portMAX_DELAY);
   sprintf(buf, "Philosopher %i took chopstick %i", num, right_num);
   Serial.println(buf);
