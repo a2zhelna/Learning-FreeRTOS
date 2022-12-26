@@ -1,14 +1,4 @@
-/**
- * ESP32 Dining Philosophers
- * 
- * The classic "Dining Philosophers" problem in FreeRTOS form.
- * 
- * Based on http://www.cs.virginia.edu/luther/COA2/S2019/pa05-dp.html
- * 
- * Date: February 8, 2021
- * Author: Shawn Hymel
- * License: 0BSD
- */
+//* Challenge: (https://www.digikey.ca/en/maker/projects/introduction-to-rtos-solution-to-part-10-deadlock-and-starvation/872c6a057901432e84594d79fcb2cc5d)
 
 // Use only core 1 for demo purposes
 #if CONFIG_FREERTOS_UNICORE
@@ -21,13 +11,16 @@
 enum { NUM_TASKS = 5 };           // Number of tasks (philosophers)
 enum { TASK_STACK_SIZE = 2048 };  // Bytes in ESP32, words in vanilla FreeRTOS
 
-// Globals
+// Globals                          
 static SemaphoreHandle_t bin_sem;   // Wait for parameters to be read
 static SemaphoreHandle_t done_sem;  // Notifies main task when done
 static SemaphoreHandle_t chopstick[NUM_TASKS];
 
+static SemaphoreHandle_t arbitrator_mtx;
+
 //*****************************************************************************
 // Tasks
+
 
 // The only task: eating
 void eat(void *parameters) {
@@ -44,6 +37,10 @@ void eat(void *parameters) {
     right_num = num + 1;
   }
   xSemaphoreGive(bin_sem);
+
+  //Wait for the arbitrator mutex if another philosopher is currently
+  //picking up / putting down chop sticks or eating.
+  xSemaphoreTake(arbitrator_mtx, portMAX_DELAY);
 
   // Take left chopstick
   xSemaphoreTake(chopstick[num], portMAX_DELAY);
@@ -76,8 +73,14 @@ void eat(void *parameters) {
   sprintf(buf, "Philosopher %i returned chopstick %i", num, num);
   Serial.println(buf);
 
+  //"Tell arbitrator" you are done with the chopsticks
+  //This makes an arbitrary task unblock and do the 
+  //stuff with the chopsticks.
+  xSemaphoreGive(arbitrator_mtx);
+
   // Notify main task and delete self
   xSemaphoreGive(done_sem);
+
   vTaskDelete(NULL);
 }
 
@@ -104,7 +107,11 @@ void setup() {
     chopstick[i] = xSemaphoreCreateMutex();
   }
 
-
+  //Create the "arbitrator mutex"
+  //This locks the pick up / eat / drop actions of the philosophers,
+  //so only the philosopher which has the mutex will be able to perform those actions,
+  //and no deadlocking will occur.
+  arbitrator_mtx = xSemaphoreCreateMutex();
 
   // Have the philosphers start eating
   for (int i = 0; i < NUM_TASKS; i++) {
