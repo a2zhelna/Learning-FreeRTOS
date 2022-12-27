@@ -107,6 +107,12 @@ void doTaskH(void *parameters) {
     // Take lock
     Serial.println("Task H trying to take lock...");
     timestamp = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    
+    // In Shawn's solution, he uses a spinlock here too. However, I believe it's
+    // redundant since to get rid of the priority inversion, we're only making sure that task L doesn't
+    // get preempted by task M during its critical section. And currently, Whenever task M runs, task 
+    // H can preempt it, which is the desired behavior.  
+    // (Task H doesn't need to block anything, it already has the highest priority out of all tasks)
 
     // Say how long we spend waiting for a lock
     Serial.print("Task H got lock. Spent ");
