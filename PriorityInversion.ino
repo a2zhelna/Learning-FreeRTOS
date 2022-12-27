@@ -8,6 +8,22 @@
 // * These guards include portENTER_CRITICAL() and portEXIT_CRITICAL() for the ESP32
 // * or taskENTER_CRITICAL() and taskEXIT_CRITICAL() for vanilla FreeRTOS.
 
+// ****************************************************************************************************
+// The idea for this solution for priority inversion is to completely disable the scheduler 
+// while tasks L does its work
+// This way, 
+// task H can get blocked by task L, BUT
+// task L can't get preempted by task M while doing its work,
+// which makes sure that task H doesn't get preempted by task M... no priority inversion
+
+// This solution almost has the same effect as when incorporating the priority ceiling protocol.
+// In a priority ceiling solution, when task L is in a critical section its priority 
+// changes to match that of task H, where afterwards, the scheduler can schedule
+// the "in-critical section" task L and the high priority task H to run "in parallel".
+// The difference in this solution is that the scheduler doesn't run while task L does 
+// work in the critical section, and thus task H has to wait for this critical section
+// to end before it can be scheduled.
+
 // Use only core 1 for demo purposes
 #if CONFIG_FREERTOS_UNICORE
   static const BaseType_t app_cpu = 0;
@@ -19,10 +35,8 @@
 TickType_t cs_wait = 250;   // Time spent in critical section (ms)
 TickType_t med_wait = 5000; // Time medium task spends working (ms)
 
-// Globals
-static SemaphoreHandle_t lock;
-
-static portMUX_TYPE spinlock;
+//Declare spinlock. Initialize it as unlocked
+static portMUX_TYPE spinlock = portMUX_INITIALIZER_UNLOCKED;
 
 //*****************************************************************************
 // Tasks
@@ -34,16 +48,20 @@ void doTaskL(void *parameters) {
 
   // Do forever
   while (1) {
+    //Serial.println(configMINIMAL_STACK_SIZE);
 
     // Take lock
     Serial.println("Task L trying to take lock...");
     timestamp = xTaskGetTickCount() * portTICK_PERIOD_MS;
-    xSemaphoreTake(lock, portMAX_DELAY);
+
+    portENTER_CRITICAL(&spinlock);  //Enter critical section. Block other tasks from preempting
 
     // Say how long we spend waiting for a lock
     Serial.print("Task L got lock. Spent ");
-    Serial.print((xTaskGetTickCount() * portTICK_PERIOD_MS) - timestamp)S;
-    Serial.println(" ms waiting for lock. Doing some work...");
+    Serial.print((xTaskGetTickCount() * portTICK_PERIOD_MS) - timestamp);
+    Serial.println(" ms waiting for lock. Doing some");  // Adding any more characters to this string causes a stack overflow... weird..
+                                                          // Increasing the task's stack size doesn't fix it. This is the case with 
+                                                          // Shawn's solution too.
 
     // Hog the processor for a while doing nothing
     timestamp = xTaskGetTickCount() * portTICK_PERIOD_MS;
@@ -51,7 +69,8 @@ void doTaskL(void *parameters) {
 
     // Release lock
     Serial.println("Task L releasing lock.");
-    xSemaphoreGive(lock);
+
+    portEXIT_CRITICAL(&spinlock); //Exit critical section.
 
     // Go to sleep
     vTaskDelay(500 / portTICK_PERIOD_MS);
@@ -88,7 +107,6 @@ void doTaskH(void *parameters) {
     // Take lock
     Serial.println("Task H trying to take lock...");
     timestamp = xTaskGetTickCount() * portTICK_PERIOD_MS;
-    xSemaphoreTake(lock, portMAX_DELAY);
 
     // Say how long we spend waiting for a lock
     Serial.print("Task H got lock. Spent ");
@@ -101,7 +119,6 @@ void doTaskH(void *parameters) {
 
     // Release lock
     Serial.println("Task H releasing lock.");
-    xSemaphoreGive(lock);
     
     // Go to sleep
     vTaskDelay(500 / portTICK_PERIOD_MS);
@@ -120,10 +137,6 @@ void setup() {
   vTaskDelay(1000 / portTICK_PERIOD_MS);
   Serial.println();
   Serial.println("---FreeRTOS Priority Inversion Demo---");
-
-  // Create semaphores and mutexes before starting tasks
-  lock = xSemaphoreCreateBinary();
-  xSemaphoreGive(lock); // Make sure binary semaphore starts at 1
 
   // The order of starting the tasks matters to force priority inversion
 
